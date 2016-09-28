@@ -5,146 +5,154 @@
 # python aaa.py flaskapp:app
 # cd C:\Users\iwill\PycharmProjects\untitled\javaee2
 # http://localhost:8888/hello
+# coding=utf-8
+# python 2.7
+
+"""
+for test
+"""
+
+from __future__ import unicode_literals
 import socket
 import StringIO
 import sys
 import datetime
+import os
 
 
 class WSGIServer(object):
-
-    address_family = socket.AF_INET
+    socket_family = socket.AF_INET
     socket_type = socket.SOCK_STREAM
-    request_queue_size = 1
+    request_queue_size = 10
 
-    def __init__(self, server_address):
+    def __init__(self, address):
         # Create a listening socket
-        self.listen_socket = listen_socket = socket.socket(
-            self.address_family,
-            self.socket_type
-        )
+        self.socket = socket.socket(self.socket_family, self.socket_type)
         # Allow to reuse the same address
-        listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         # Bind
-        listen_socket.bind(server_address)
+        self.socket.bind(address)
         # Activate
-        listen_socket.listen(self.request_queue_size)
+        self.socket.listen(self.request_queue_size)
         # Get server host name and port
-        host, port = self.listen_socket.getsockname()[:2]
-        self.server_name = socket.getfqdn(host)
-        self.server_port = port
-        # Return headers set by Web framework/Web application
-        self.headers_set = []
+        host, port = self.socket.getsockname()[:2]
+        self.host = host
+        self.port = port
 
-    def set_app(self, application):
+    def set_App(self, application):
         self.application = application
 
-    def serve_forever(self):
-        listen_socket = self.listen_socket
-        while True:
-            # New client connection
-            self.client_connection, client_address = listen_socket.accept()
-            # Handle one request and close the client connection. Then
-            # loop over to wait for another client connection
-            self.handle_one_request()
+    def beginServer(self):
+        print "WSGIServer: Serving HTTP on port 8888"
+        while 1:
+            self.connection, address = self.socket.accept()
+            self.sendRequest()
 
-    def handle_one_request(self):
-        self.request_data = request_data = self.client_connection.recv(1024)
-        # Print formatted request data a la 'curl -v'
-        print(''.join(
-            '< {line}\n'.format(line=line)
-            for line in request_data.splitlines()
-        ))
+    def sendRequest(self):
+        self.request_data = self.connection.recv(1024)
+        self.request_lines = self.request_data.splitlines()
+        try:
+            self.getUrl()
+            env = self.getEnviron()
 
-        self.parse_request(request_data)
+            print env['PATH_INFO'][1:]
 
-        # Construct environment dictionary using request data
-        env = self.get_environ()
+            if env['PATH_INFO'][1:].endswith(".html"):
+                application = 'app1'
+            else:
+                application = 'app2'
 
-        # It's time to call our application callable and get
-        # back a result that will become HTTP response body
-        result = self.application(env, self.start_response)
+            application = getattr(module, application)
+            httpd.setApplication(application)
 
-        # Construct a response and send it back to the client
-        self.finish_response(result)
+            app_data = self.application(env, self.startResponse)
+            self.finishResponse(app_data)
+            print '[{0}] "{1}" {2}'.format(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                                           self.request_lines[0], self.status)
+        except Exception, e:
+            pass
 
-    def parse_request(self, text):
-        request_line = text.splitlines()[0]
-        request_line = request_line.rstrip('\r\n')
-        # Break down the request line into components
-        (self.request_method,  # GET
-         self.path,            # /hello
-         self.request_version  # HTTP/1.1
-         ) = request_line.split()
+    def getUrl(self):
+        self.request_dict = {'Path': self.request_lines[0]}
+        for itm in self.request_lines[1:]:
+            if ':' in itm:
+                self.request_dict[itm.split(':')[0]] = itm.split(':')[1]
+        self.request_method, self.path, self.request_version = self.request_dict.get('Path').split()
 
-    def get_environ(self):
-        env = {}
-        # The following code snippet does not follow PEP8 conventions
-        # but it's formatted the way it is for demonstration purposes
-        # to emphasize the required variables and their values
-        #
-        # Required WSGI variables
-        env['wsgi.version']      = (1, 0)
-        env['wsgi.url_scheme']   = 'http'
-        env['wsgi.input']        = StringIO.StringIO(self.request_data)
-        env['wsgi.errors']       = sys.stderr
-        env['wsgi.multithread']  = False
-        env['wsgi.multiprocess'] = False
-        env['wsgi.run_once']     = False
-        # Required CGI variables
-        env['REQUEST_METHOD']    = self.request_method    # GET
-        env['PATH_INFO']         = self.path              # /hello
-        env['SERVER_NAME']       = self.server_name       # localhost
-        env['SERVER_PORT']       = str(self.server_port)  # 8888
+    def getEnviron(self):
+        env = {
+            'wsgi.version': (1, 0),
+            'wsgi.url_scheme': 'http',
+            'wsgi.input': StringIO.StringIO(self.request_data),
+            'wsgi.errors': sys.stderr,
+            'wsgi.multithread': False,
+            'wsgi.multiprocess': False,
+            'wsgi.run_once': False,
+            'REQUEST_METHOD': self.request_method,
+            'PATH_INFO': self.path,
+            'SERVER_NAME': self.host,
+            'SERVER_PORT': self.port,
+            'USER_AGENT': self.request_dict.get('User-Agent')
+        }
         return env
 
-    def start_response(self, status, response_headers, exc_info=None):
-        # Add necessary server headers
-        server_headers = [
+    def startResponse(self, status, response_headers):
+        headers = [
             ('Date', datetime.datetime.now().strftime('%a, %d %b %Y %H:%M:%S GMT')),
-            ('Server', 'RAPOWSGI0.1'),
+            ('Server', 'WSGI'),
         ]
-        self.headers_set = [status, response_headers + server_headers]
-        # To adhere to WSGI specification the start_response must return
-        # a 'write' callable. We simplicity's sake we'll ignore that detail
-        # for now.
-        # return self.finish_response
+        self.headers = response_headers + headers
+        self.status = status
 
-    def finish_response(self, result):
+    def finishResponse(self, app_data):
         try:
-            status, response_headers = self.headers_set
-            response = 'HTTP/1.1 {status}\r\n'.format(status=status)
-            for header in response_headers:
+            response = 'HTTP/1.1 {status}\r\n'.format(status=self.status)
+            for header in self.headers:
                 response += '{0}: {1}\r\n'.format(*header)
             response += '\r\n'
-            for data in result:
+            for data in app_data:
                 response += data
-            # Print formatted response data a la 'curl -v'
-            print(''.join(
-                '> {line}\n'.format(line=line)
-                for line in response.splitlines()
-            ))
-            self.client_connection.sendall(response)
+            self.connection.sendall(response)
         finally:
-            self.client_connection.close()
+            self.connection.close()
 
 
-SERVER_ADDRESS = (HOST, PORT) = '', 8888
+def app1(environ, start_response):
+    filename = environ['PATH_INFO'][1:]
+
+    if os.path.exists(filename):
+        f = open(filename, "r")
+        line = f.readline()
+        message = line
+        while line:
+            line = f.readline()
+            message = message + line
+
+        status = '200 OK'
+        response_headers = [('Content-Type', 'text/plain')]
+        start_response(status, response_headers)
+        return [message]
+    else:
+        status = '404 NOT FOUND'
+        response_headers = [('Content-Type', 'text/plain')]
+        start_response(status, response_headers)
+        return ['Can not find the file!']
 
 
-def make_server(server_address, application):
-    server = WSGIServer(server_address)
-    server.set_app(application)
-    return server
+def app2(environ, start_response):
+    status = '200 OK'
+    response_headers = [('Content-Type', 'text/plain')]
+    start_response(status, response_headers)
+
+    return ['Hello ', environ['PATH_INFO'][1:]]
 
 
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        sys.exit('Provide a WSGI application object as module:callable')
-    app_path = sys.argv[1]
-    module, application = app_path.split(':')
+    httpd = WSGIServer(('', int(8888)))
+
+    print "Web Server start..."
+
+    module = 'WSGIServer'
     module = __import__(module)
-    application = getattr(module, application)
-    httpd = make_server(SERVER_ADDRESS, application)
-    print('WSGIServer: Serving HTTP on port {port} ...\n'.format(port=PORT))
-    httpd.serve_forever()
+
+    httpd.beginServer()
